@@ -147,6 +147,31 @@ export async function getTikTokVideo(tiktokUrl) {
     throw new Error('Unable to extract TikTok video. Link may be private or downloader is rate-limited.');
 }
 
+// Helper to retrieve the top 5 comments for a TikTok video
+export async function getTikTokComments(tiktokUrl) {
+    try {
+        const response = await axios.post('https://www.tikwm.com/api/comment/list', new URLSearchParams({
+            url: tiktokUrl
+        }), {
+            headers: {
+                ...getSpoofedHeaders(),
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+            },
+            timeout: 8000
+        });
+
+        if (response.data && response.data.code === 0 && response.data.data && response.data.data.comments) {
+            return response.data.data.comments.slice(0, 5).map(c => ({
+                author: c.user?.nickname || c.user?.unique_id || 'User',
+                text: c.text
+            }));
+        }
+    } catch (err) {
+        console.warn('Failed to retrieve TikTok comments:', err.message);
+    }
+    return [];
+}
+
 // Extraction Helper: Instagram Reels/Posts
 export async function getInstagramVideo(instagramUrl) {
     console.log(`🚀 Requesting Instagram Downloader for: ${instagramUrl}`);
@@ -441,12 +466,44 @@ async function startBot() {
                 }
             }
 
-            // Send the video back to the user with the description/title as caption
+            // Build the final video caption
+            let finalCaption = '';
+            
+            const isGeneric = !title || [
+                'youtube shorts', 
+                'instagram reel', 
+                'tiktok video', 
+                'extracted video', 
+                'video'
+            ].includes(title.toLowerCase().trim());
+
+            if (!isGeneric) {
+                finalCaption += title;
+            }
+
+            // Append signature
+            finalCaption += `${finalCaption ? '\n\n' : ''}> <Ahmed is a Web Dev/>`;
+
+            // Send the video back to the user with the constructed caption
             await sock.sendMessage(remoteJid, {
                 video: videoBuffer,
-                caption: `${title}\n\n🤖 Social Downloader Bot`,
+                caption: finalCaption,
                 mimetype: 'video/mp4'
             }, { quoted: msg });
+
+            // Send top comments separately if it's TikTok
+            if (platform === 'tiktok') {
+                try {
+                    const comments = await getTikTokComments(detectedUrl);
+                    if (comments && comments.length > 0) {
+                        const commentsFormatted = comments.map((c, i) => `${i + 1}. *${c.author}*: ${c.text}`).join('\n');
+                        const commentsMsg = `💬 *Top Comments:*\n\n${commentsFormatted}`;
+                        await sock.sendMessage(remoteJid, { text: commentsMsg }, { quoted: msg });
+                    }
+                } catch (cErr) {
+                    console.warn('Failed to retrieve or send comments during messaging:', cErr.message);
+                }
+            }
 
             console.log(`📤 Video sent successfully to ${remoteJid}`);
 
