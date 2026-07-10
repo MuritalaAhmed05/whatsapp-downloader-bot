@@ -15,6 +15,57 @@ const INSTAGRAM_REGEX = /https?:\/\/(?:www\.)?instagram\.com\/(?:reel|p)\/[a-zA-
 const YOUTUBE_REGEX = /https?:\/\/(?:www\.)?(?:youtube\.com\/shorts\/[a-zA-Z0-9_-]+|youtu\.be\/[a-zA-Z0-9_-]+)/i;
 
 let isReconnecting = false;
+let dynamicCobaltApis = [];
+
+// Helper to aggressively strip tracking query parameters
+function sanitizeUrl(url) {
+    if (!url) return '';
+    try {
+        const parsed = new URL(url);
+        parsed.search = '';
+        return parsed.toString();
+    } catch {
+        return url.split('?')[0].trim();
+    }
+}
+
+// Function to generate random residential-like headers and fake client IP to bypass blocklists
+function getSpoofedHeaders() {
+    const randomIp = Array.from({ length: 4 }, () => Math.floor(Math.random() * 255)).join('.');
+    return {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Safari";v="604"',
+        'sec-ch-ua-mobile': '?1',
+        'sec-ch-ua-platform': '"iOS"',
+        'X-Forwarded-For': randomIp,
+        'X-Real-IP': randomIp,
+        'Client-IP': randomIp,
+        'Referer': 'https://www.google.com/'
+    };
+}
+
+// Fetch active Cobalt APIs dynamically from cobalt.directory to bypass dead mirrors
+async function fetchActiveCobaltApis() {
+    try {
+        console.log('🔄 Fetching latest active Cobalt APIs from directory...');
+        const res = await axios.get('https://cobalt.directory/api/working?type=api', {
+            timeout: 5000,
+            headers: getSpoofedHeaders()
+        });
+        const apis = res.data?.data?.Frontend || [];
+        if (apis.length > 0) {
+            dynamicCobaltApis = apis.map(api => api.endsWith('/') ? api : api + '/');
+            console.log(`📡 Discovered ${dynamicCobaltApis.length} dynamic Cobalt APIs.`);
+        }
+    } catch (err) {
+        console.warn('⚠️ Failed to fetch dynamic Cobalt instances. Will use default fallbacks.', err.message);
+    }
+}
+
+// Fetch dynamic apis at startup
+fetchActiveCobaltApis();
 
 // Helper to recursively scan a JSON object for keys containing a video URL
 function findVideoUrlInJSON(data) {
@@ -38,7 +89,6 @@ function findVideoUrlInJSON(data) {
                 const found = findVideoUrlInJSON(val);
                 if (found) return found;
             } else if (typeof val === 'string' && val.startsWith('http')) {
-                // Check if it looks like a media link
                 if (val.includes('.mp4') || val.includes('cdn') || val.includes('googlevideo') || val.includes('instagram') || val.includes('fbcdn')) {
                     return val;
                 }
@@ -50,27 +100,51 @@ function findVideoUrlInJSON(data) {
 
 // Extraction Helper: TikTok
 export async function getTikTokVideo(tiktokUrl) {
-    console.log(`🚀 Requesting TikWM API for: ${tiktokUrl}`);
-    const response = await axios.post('https://www.tikwm.com/api/', new URLSearchParams({
-        url: tiktokUrl,
-        hd: '1'
-    }), {
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        },
-        timeout: 15000
-    });
+    console.log(`🚀 Requesting TikTok Downloader for: ${tiktokUrl}`);
+    
+    // 1. Try TikWM first (stable placeholder)
+    try {
+        const response = await axios.post('https://www.tikwm.com/api/', new URLSearchParams({
+            url: tiktokUrl,
+            hd: '1'
+        }), {
+            headers: {
+                ...getSpoofedHeaders(),
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+            },
+            timeout: 15000
+        });
 
-    const result = response.data;
-    if (result.code !== 0 || !result.data || !result.data.play) {
-        throw new Error(result.msg || 'Unable to extract watermark-free TikTok video.');
+        const result = response.data;
+        if (result.code === 0 && result.data && result.data.play) {
+            return {
+                videoUrl: result.data.play,
+                title: result.data.title || 'TikTok Video'
+            };
+        }
+    } catch (err) {
+        console.warn(`TikWM failed: ${err.message}. Trying fallback API...`);
     }
 
-    return {
-        videoUrl: result.data.play,
-        title: result.data.title || 'TikTok Video'
-    };
+    // 2. Try tiklydown keyless API as a fallback
+    try {
+        const response = await axios.get(`https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(tiktokUrl)}`, {
+            headers: getSpoofedHeaders(),
+            timeout: 10000
+        });
+        const videoUrl = response.data?.video?.noWatermark || response.data?.video?.watermark;
+        if (videoUrl) {
+            console.log(`✅ TikTok extraction via Tiklydown successful!`);
+            return {
+                videoUrl,
+                title: response.data?.title || 'TikTok Video'
+            };
+        }
+    } catch (err) {
+        console.error(`TikTok Tiklydown fallback failed:`, err.message);
+    }
+
+    throw new Error('Unable to extract TikTok video. Link may be private or downloader is rate-limited.');
 }
 
 // Extraction Helper: Instagram Reels/Posts
@@ -83,8 +157,8 @@ export async function getInstagramVideo(instagramUrl) {
             url: instagramUrl
         }, {
             headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                ...getSpoofedHeaders(),
+                'Content-Type': 'application/json'
             },
             timeout: 10000
         });
@@ -95,33 +169,59 @@ export async function getInstagramVideo(instagramUrl) {
             return { videoUrl, title: 'Instagram Reel' };
         }
     } catch (err) {
-        console.warn(`Instagram mediadl.app failed: ${err.message}. Trying Cobalt fallbacks...`);
+        console.warn(`Instagram mediadl.app failed: ${err.message}. Trying alternative proxies...`);
     }
 
-    // 2. Try Cobalt API fallback if user configured COBALT_API_URL or try public fallback
-    const cobaltUrl = process.env.COBALT_API_URL || 'https://rue-cobalt.xenon.zone/';
+    // 2. Try api.vanyydownloader.com/api/v1/ as requested by user
     try {
-        console.log(`Trying Cobalt fallback for Instagram: ${cobaltUrl}`);
-        const response = await axios.post(cobaltUrl, {
+        const response = await axios.post('https://api.vanyydownloader.com/api/v1/media', {
             url: instagramUrl
         }, {
             headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                ...getSpoofedHeaders(),
+                'Content-Type': 'application/json'
             },
             timeout: 10000
         });
-
-        if (response.data && response.data.url) {
-            console.log(`✅ Instagram extraction via Cobalt successful!`);
-            return { videoUrl: response.data.url, title: 'Instagram Reel' };
+        const videoUrl = findVideoUrlInJSON(response.data);
+        if (videoUrl) {
+            console.log(`✅ Instagram extraction via Vanyy successful!`);
+            return { videoUrl, title: 'Instagram Reel' };
         }
     } catch (err) {
-        console.error(`Cobalt Instagram fallback failed:`, err.response?.data || err.message);
+        console.warn(`Instagram Vanyy failed: ${err.message}. Trying Cobalt fallbacks...`);
     }
 
-    throw new Error('Unable to extract Instagram video. The public downloader is currently offline or blocked by Instagram.');
+    // 3. Fallback to list of Cobalt instances (prioritizing custom COBALT_API_URL)
+    const fallbackList = [];
+    if (process.env.COBALT_API_URL) fallbackList.push(process.env.COBALT_API_URL);
+    fallbackList.push(...dynamicCobaltApis);
+    fallbackList.push('https://rue-cobalt.xenon.zone/', 'https://subito-c.meowing.de/', 'https://nuko-c.meowing.de/');
+
+    for (const cobaltUrl of fallbackList) {
+        try {
+            console.log(`Trying Cobalt fallback for Instagram: ${cobaltUrl}`);
+            const response = await axios.post(cobaltUrl, {
+                url: instagramUrl
+            }, {
+                headers: {
+                    ...getSpoofedHeaders(),
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                timeout: 8000
+            });
+
+            if (response.data && response.data.url) {
+                console.log(`✅ Instagram extraction via Cobalt (${cobaltUrl}) successful!`);
+                return { videoUrl: response.data.url, title: 'Instagram Reel' };
+            }
+        } catch (err) {
+            console.warn(`Cobalt Instagram instance ${cobaltUrl} failed.`);
+        }
+    }
+
+    throw new Error('Unable to extract Instagram video. All public downloader proxies are currently blocked or offline.');
 }
 
 // Extraction Helper: YouTube Shorts
@@ -135,9 +235,9 @@ export async function getYoutubeVideo(youtubeUrl) {
             vQuality: '720'
         }, {
             headers: {
+                ...getSpoofedHeaders(),
                 'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'Content-Type': 'application/json'
             },
             timeout: 10000
         });
@@ -147,34 +247,40 @@ export async function getYoutubeVideo(youtubeUrl) {
             return { videoUrl: response.data.url, title: 'YouTube Shorts' };
         }
     } catch (err) {
-        console.warn(`Cobalt v7 API failed/shutdown: ${err.message || err}. Trying v10 layout and fallbacks...`);
+        console.warn(`Cobalt v7 API failed/shutdown: ${err.message}. Trying v10 layout and fallbacks...`);
     }
 
-    // 2. Try Cobalt v10 layout on the configured COBALT_API_URL or fallbacks
-    const cobaltUrl = process.env.COBALT_API_URL || 'https://rue-cobalt.xenon.zone/';
-    try {
-        console.log(`Trying Cobalt v10 layout on: ${cobaltUrl}`);
-        const response = await axios.post(cobaltUrl, {
-            url: youtubeUrl,
-            videoQuality: '720'
-        }, {
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            },
-            timeout: 10000
-        });
+    // 2. Try v10 layout on the fallback list of Cobalt instances
+    const fallbackList = [];
+    if (process.env.COBALT_API_URL) fallbackList.push(process.env.COBALT_API_URL);
+    fallbackList.push(...dynamicCobaltApis);
+    fallbackList.push('https://rue-cobalt.xenon.zone/', 'https://subito-c.meowing.de/', 'https://nuko-c.meowing.de/');
 
-        if (response.data && response.data.url) {
-            console.log(`✅ YouTube extraction via Cobalt v10 successful!`);
-            return { videoUrl: response.data.url, title: 'YouTube Shorts' };
+    for (const cobaltUrl of fallbackList) {
+        try {
+            console.log(`Trying Cobalt v10 layout on: ${cobaltUrl}`);
+            const response = await axios.post(cobaltUrl, {
+                url: youtubeUrl,
+                videoQuality: '720'
+            }, {
+                headers: {
+                    ...getSpoofedHeaders(),
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                timeout: 8000
+            });
+
+            if (response.data && response.data.url) {
+                console.log(`✅ YouTube extraction via Cobalt v10 (${cobaltUrl}) successful!`);
+                return { videoUrl: response.data.url, title: 'YouTube Shorts' };
+            }
+        } catch (err) {
+            console.warn(`Cobalt YouTube instance ${cobaltUrl} failed.`);
         }
-    } catch (err) {
-        console.error(`Cobalt v10 YouTube fallback failed:`, err.response?.data || err.message);
     }
 
-    throw new Error('Unable to extract YouTube video. The public Cobalt instance is blocked or offline. Please host your own Cobalt instance using Docker and set COBALT_API_URL.');
+    throw new Error('Unable to extract YouTube video. All public Cobalt proxies are blocked. Consider hosting your own instance and setting COBALT_API_URL.');
 }
 
 async function startBot() {
@@ -272,13 +378,13 @@ async function startBot() {
 
         // Route URL detection by checking domains
         if (TIKTOK_REGEX.test(text)) {
-            detectedUrl = text.match(TIKTOK_REGEX)[0];
+            detectedUrl = sanitizeUrl(text.match(TIKTOK_REGEX)[0]);
             platform = 'tiktok';
         } else if (INSTAGRAM_REGEX.test(text)) {
-            detectedUrl = text.match(INSTAGRAM_REGEX)[0];
+            detectedUrl = sanitizeUrl(text.match(INSTAGRAM_REGEX)[0]);
             platform = 'instagram';
         } else if (YOUTUBE_REGEX.test(text)) {
-            detectedUrl = text.match(YOUTUBE_REGEX)[0];
+            detectedUrl = sanitizeUrl(text.match(YOUTUBE_REGEX)[0]);
             platform = 'youtube';
         }
 
@@ -313,9 +419,7 @@ async function startBot() {
             console.log('Downloading video bytes...');
             const videoStreamRes = await axios.get(videoUrl, {
                 responseType: 'arraybuffer',
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                },
+                headers: getSpoofedHeaders(),
                 timeout: 30000 // 30 seconds timeout
             });
             const videoBuffer = Buffer.from(videoStreamRes.data);
@@ -399,4 +503,3 @@ if (isMain) {
         console.error('Fatal bot startup error:', err);
     });
 }
-
