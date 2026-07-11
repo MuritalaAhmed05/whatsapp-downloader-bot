@@ -458,6 +458,7 @@ async function startBot() {
             }
 
             // Remove the loading/status message
+            /*
             if (statusKey) {
                 try {
                     await sock.sendMessage(remoteJid, { delete: statusKey });
@@ -465,6 +466,7 @@ async function startBot() {
                     console.warn('Failed to delete status message:', delErr);
                 }
             }
+            */
 
             // Build the final video caption
             let finalCaption = '';
@@ -492,6 +494,7 @@ async function startBot() {
             }, { quoted: msg });
 
             // Send top comments separately if it's TikTok
+            /*
             if (platform === 'tiktok') {
                 try {
                     const comments = await getTikTokComments(detectedUrl);
@@ -504,6 +507,7 @@ async function startBot() {
                     console.warn('Failed to retrieve or send comments during messaging:', cErr.message);
                 }
             }
+            */
 
             console.log(`📤 Video sent successfully to ${remoteJid}`);
 
@@ -511,6 +515,7 @@ async function startBot() {
             console.error('❌ Error processing video:', error.message);
 
             // Clean up the status message
+            /*
             if (statusKey) {
                 try {
                     await sock.sendMessage(remoteJid, { delete: statusKey });
@@ -518,6 +523,7 @@ async function startBot() {
                     console.warn('Failed to delete status message on error:', delErr);
                 }
             }
+            */
 
             // Send standard user-friendly warning message back
             const errorText = error.message || 'Server error occurred.';
