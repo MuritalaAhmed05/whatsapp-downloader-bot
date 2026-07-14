@@ -17,6 +17,7 @@ const YOUTUBE_REGEX = /https?:\/\/(?:www\.)?(?:youtube\.com\/shorts\/[a-zA-Z0-9_
 let isReconnecting = false;
 let dynamicCobaltApis = [];
 let dynamicYoutubeApis = [];
+let dynamicInstagramApis = [];
 const COBALT_API_URL = process.env.COBALT_API_URL || 'https://my-private-cobalt.onrender.com/';
 
 // Helper to aggressively strip tracking query parameters
@@ -65,6 +66,11 @@ async function fetchActiveCobaltApis() {
         if (youtubeApis.length > 0) {
             dynamicYoutubeApis = youtubeApis.map(api => api.endsWith('/') ? api : api + '/');
             console.log(`📡 Discovered ${dynamicYoutubeApis.length} dynamic YouTube-specific Cobalt APIs.`);
+        }
+        const instagramApis = res.data?.data?.instagram || [];
+        if (instagramApis.length > 0) {
+            dynamicInstagramApis = instagramApis.map(api => api.endsWith('/') ? api : api + '/');
+            console.log(`📡 Discovered ${dynamicInstagramApis.length} dynamic Instagram-specific Cobalt APIs.`);
         }
     } catch (err) {
         console.warn('⚠️ Failed to fetch dynamic Cobalt instances. Will use default fallbacks.', err.message);
@@ -227,8 +233,21 @@ export async function getInstagramVideo(instagramUrl) {
     // 3. Fallback to list of Cobalt instances (prioritizing custom COBALT_API_URL)
     const fallbackList = [];
     if (COBALT_API_URL) fallbackList.push(COBALT_API_URL);
-    fallbackList.push(...dynamicCobaltApis);
-    fallbackList.push('https://rue-cobalt.xenon.zone/', 'https://subito-c.meowing.de/', 'https://nuko-c.meowing.de/');
+    
+    if (dynamicInstagramApis.length > 0) {
+        fallbackList.push(...dynamicInstagramApis);
+    } else {
+        // Fallback to verified public Cobalt mirrors that support Instagram extraction
+        fallbackList.push(
+            'https://dog.kittycat.boo/',
+            'https://cobaltapi.cjs.nz/',
+            'https://api.qwkuns.me/',
+            'https://cobalt.omega.wolfy.love/',
+            'https://nuko-c.meowing.de/',
+            'https://nachos.imput.net/',
+            'https://api-cobalt.eversiege.network/'
+        );
+    }
 
     for (const cobaltUrl of fallbackList) {
         try {
