@@ -17,6 +17,7 @@ const YOUTUBE_REGEX = /https?:\/\/(?:www\.)?(?:youtube\.com\/shorts\/[a-zA-Z0-9_
 let isReconnecting = false;
 let dynamicCobaltApis = [];
 let dynamicYoutubeApis = [];
+const COBALT_API_URL = process.env.COBALT_API_URL || 'https://my-private-cobalt.onrender.com/';
 
 // Helper to aggressively strip tracking query parameters
 function sanitizeUrl(url) {
@@ -225,7 +226,7 @@ export async function getInstagramVideo(instagramUrl) {
 
     // 3. Fallback to list of Cobalt instances (prioritizing custom COBALT_API_URL)
     const fallbackList = [];
-    if (process.env.COBALT_API_URL) fallbackList.push(process.env.COBALT_API_URL);
+    if (COBALT_API_URL) fallbackList.push(COBALT_API_URL);
     fallbackList.push(...dynamicCobaltApis);
     fallbackList.push('https://rue-cobalt.xenon.zone/', 'https://subito-c.meowing.de/', 'https://nuko-c.meowing.de/');
 
