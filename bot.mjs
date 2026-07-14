@@ -237,9 +237,14 @@ export async function getInstagramVideo(instagramUrl) {
                 timeout: 8000
             });
 
-            if (response.data && response.data.url) {
-                console.log(`✅ Instagram extraction via Cobalt (${cobaltUrl}) successful!`);
-                return { videoUrl: response.data.url, title: 'Instagram Reel' };
+            if (response.data) {
+                if (response.data.url) {
+                    console.log(`✅ Instagram extraction via Cobalt (${cobaltUrl}) successful!`);
+                    return { videoUrl: response.data.url, title: 'Instagram Reel' };
+                } else if (response.data.status === 'picker' || response.data.picker) {
+                    console.log(`✅ Instagram carousel extraction via Cobalt (${cobaltUrl}) successful!`);
+                    return { picker: response.data.picker, title: 'Instagram Carousel' };
+                }
             }
         } catch (err) {
             console.warn(`Cobalt Instagram instance ${cobaltUrl} failed.`);
@@ -267,9 +272,14 @@ export async function getYoutubeVideo(youtubeUrl) {
             timeout: 10000
         });
 
-        if (response.data && response.data.url) {
-            console.log(`✅ YouTube extraction via Cobalt v7 API successful!`);
-            return { videoUrl: response.data.url, title: 'YouTube Shorts' };
+        if (response.data) {
+            if (response.data.url) {
+                console.log(`✅ YouTube extraction via Cobalt v7 API successful!`);
+                return { videoUrl: response.data.url, title: 'YouTube Shorts' };
+            } else if (response.data.status === 'picker' || response.data.picker) {
+                console.log(`✅ YouTube playlist extraction via Cobalt v7 API successful!`);
+                return { picker: response.data.picker, title: 'YouTube Playlist' };
+            }
         }
     } catch (err) {
         console.warn(`Cobalt v7 API failed/shutdown: ${err.message}. Trying v10 layout and fallbacks...`);
@@ -296,9 +306,14 @@ export async function getYoutubeVideo(youtubeUrl) {
                 timeout: 8000
             });
 
-            if (response.data && response.data.url) {
-                console.log(`✅ YouTube extraction via Cobalt v10 (${cobaltUrl}) successful!`);
-                return { videoUrl: response.data.url, title: 'YouTube Shorts' };
+            if (response.data) {
+                if (response.data.url) {
+                    console.log(`✅ YouTube extraction via Cobalt v10 (${cobaltUrl}) successful!`);
+                    return { videoUrl: response.data.url, title: 'YouTube Shorts' };
+                } else if (response.data.status === 'picker' || response.data.picker) {
+                    console.log(`✅ YouTube playlist extraction via Cobalt v10 (${cobaltUrl}) successful!`);
+                    return { picker: response.data.picker, title: 'YouTube Playlist' };
+                }
             }
         } catch (err) {
             console.warn(`Cobalt YouTube instance ${cobaltUrl} failed.`);
@@ -436,6 +451,90 @@ async function startBot() {
                 extractionResult = await getInstagramVideo(detectedUrl);
             } else if (platform === 'youtube') {
                 extractionResult = await getYoutubeVideo(detectedUrl);
+            }
+
+            if (extractionResult.picker && Array.isArray(extractionResult.picker)) {
+                const totalItems = extractionResult.picker.length;
+                console.log(`📦 Carousel/Slides detected: ${totalItems} items.`);
+                
+                // Update the status message to show it is a carousel/picker
+                if (statusKey) {
+                    try {
+                        await sock.sendMessage(remoteJid, {
+                            edit: statusKey,
+                            text: `⏳ Processing carousel: Downloading 0 of ${totalItems} items...`
+                        });
+                    } catch (editErr) {
+                        console.warn('Failed to edit status message:', editErr);
+                    }
+                }
+
+                let processedCount = 0;
+                for (let i = 0; i < totalItems; i++) {
+                    const item = extractionResult.picker[i];
+                    if (!item.url) continue;
+
+                    try {
+                        console.log(`Downloading item ${i + 1}/${totalItems} (${item.type})...`);
+                        const itemStreamRes = await axios.get(item.url, {
+                            responseType: 'arraybuffer',
+                            headers: getSpoofedHeaders(),
+                            timeout: 30000
+                        });
+                        const itemBuffer = Buffer.from(itemStreamRes.data);
+                        const sizeInMB = itemBuffer.length / (1024 * 1024);
+                        console.log(`📦 Downloaded item size: ${sizeInMB.toFixed(2)} MB`);
+
+                        if (sizeInMB > 64) {
+                            console.warn(`Item ${i + 1} is too large (${sizeInMB.toFixed(2)} MB). Skipping.`);
+                            continue;
+                        }
+
+                        let caption = `Slide ${i + 1} of ${totalItems}`;
+                        caption += `\n\n> <Ahmed is a Web Dev/>`;
+
+                        if (item.type === 'video') {
+                            await sock.sendMessage(remoteJid, {
+                                video: itemBuffer,
+                                caption: caption,
+                                mimetype: 'video/mp4'
+                            }, { quoted: msg });
+                        } else {
+                            // Default to photo/image for anything else (e.g. photo or gif)
+                            await sock.sendMessage(remoteJid, {
+                                image: itemBuffer,
+                                caption: caption,
+                                mimetype: 'image/jpeg'
+                            }, { quoted: msg });
+                        }
+
+                        processedCount++;
+                        if (statusKey) {
+                            try {
+                                await sock.sendMessage(remoteJid, {
+                                    edit: statusKey,
+                                    text: `⏳ Processing carousel: Downloading ${processedCount} of ${totalItems} items...`
+                                });
+                            } catch (editErr) {
+                                console.warn('Failed to edit status message:', editErr);
+                            }
+                        }
+                    } catch (itemErr) {
+                        console.error(`Failed to process carousel item ${i + 1}:`, itemErr.message);
+                    }
+                }
+
+                // Delete status message at the end
+                if (statusKey) {
+                    try {
+                        await sock.sendMessage(remoteJid, { delete: statusKey });
+                    } catch (delErr) {
+                        console.warn('Failed to delete status message:', delErr);
+                    }
+                }
+
+                console.log(`📤 Carousel sent successfully to ${remoteJid}`);
+                return;
             }
 
             const { videoUrl, title } = extractionResult;
