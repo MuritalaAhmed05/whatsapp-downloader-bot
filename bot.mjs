@@ -16,6 +16,7 @@ const YOUTUBE_REGEX = /https?:\/\/(?:www\.)?(?:youtube\.com\/shorts\/[a-zA-Z0-9_
 
 let isReconnecting = false;
 let dynamicCobaltApis = [];
+let dynamicYoutubeApis = [];
 
 // Helper to aggressively strip tracking query parameters
 function sanitizeUrl(url) {
@@ -58,6 +59,11 @@ async function fetchActiveCobaltApis() {
         if (apis.length > 0) {
             dynamicCobaltApis = apis.map(api => api.endsWith('/') ? api : api + '/');
             console.log(`📡 Discovered ${dynamicCobaltApis.length} dynamic Cobalt APIs.`);
+        }
+        const youtubeApis = res.data?.data?.youtube || res.data?.data?.['youtube-shorts'] || [];
+        if (youtubeApis.length > 0) {
+            dynamicYoutubeApis = youtubeApis.map(api => api.endsWith('/') ? api : api + '/');
+            console.log(`📡 Discovered ${dynamicYoutubeApis.length} dynamic YouTube-specific Cobalt APIs.`);
         }
     } catch (err) {
         console.warn('⚠️ Failed to fetch dynamic Cobalt instances. Will use default fallbacks.', err.message);
@@ -291,8 +297,19 @@ export async function getYoutubeVideo(youtubeUrl) {
     // Exclude the private Cobalt instance for YouTube because proxy/scraping restrictions on Render result in 0-byte downloads.
     const fallbackList = [];
     fallbackList.push('https://subito-c.meowing.de/'); // Prioritize stable public instance recommended by user
-    fallbackList.push(...dynamicCobaltApis);
-    fallbackList.push('https://rue-cobalt.xenon.zone/', 'https://nuko-c.meowing.de/');
+    
+    if (dynamicYoutubeApis.length > 0) {
+        fallbackList.push(...dynamicYoutubeApis);
+    } else {
+        // Fallback to verified public Cobalt mirrors that support YouTube extraction
+        fallbackList.push(
+            'https://api.qwkuns.me/',
+            'https://cobalt.omega.wolfy.love/',
+            'https://api.cobalt.liubquanti.click/',
+            'https://nuko-c.meowing.de/',
+            'https://api-cobalt.eversiege.network/'
+        );
+    }
 
     for (const cobaltUrl of fallbackList) {
         try {
@@ -482,7 +499,9 @@ async function startBot() {
                         console.log(`Downloading item ${i + 1}/${totalItems} (${item.type})...`);
                         const itemStreamRes = await axios.get(item.url, {
                             responseType: 'arraybuffer',
-                            headers: getSpoofedHeaders(),
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+                            },
                             timeout: 30000
                         });
                         const itemBuffer = Buffer.from(itemStreamRes.data);
@@ -547,7 +566,9 @@ async function startBot() {
             console.log('Downloading video bytes...');
             const videoStreamRes = await axios.get(videoUrl, {
                 responseType: 'arraybuffer',
-                headers: getSpoofedHeaders(),
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+                },
                 timeout: 30000 // 30 seconds timeout
             });
             const videoBuffer = Buffer.from(videoStreamRes.data);
