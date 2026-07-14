@@ -233,6 +233,7 @@ export async function getInstagramVideo(instagramUrl) {
     for (const cobaltUrl of fallbackList) {
         try {
             console.log(`Trying Cobalt fallback for Instagram: ${cobaltUrl}`);
+            const isPrivateInstance = cobaltUrl === COBALT_API_URL;
             const response = await axios.post(cobaltUrl, {
                 url: instagramUrl
             }, {
@@ -241,7 +242,7 @@ export async function getInstagramVideo(instagramUrl) {
                     'Accept': 'application/json',
                     'Content-Type': 'application/json'
                 },
-                timeout: 8000
+                timeout: isPrivateInstance ? 30000 : 8000
             });
 
             if (response.data) {
