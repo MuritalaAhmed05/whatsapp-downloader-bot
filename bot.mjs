@@ -239,7 +239,8 @@ export async function getInstagramVideo(instagramUrl) {
 
             if (response.data) {
                 if (response.data.url) {
-                    console.log(`✅ Instagram extraction via Cobalt (${cobaltUrl}) successful!`);
+                    const status = response.data.status || 'stream';
+                    console.log(`✅ Instagram extraction via Cobalt (${cobaltUrl}) successful! [Status: ${status}]`);
                     return { videoUrl: response.data.url, title: 'Instagram Reel' };
                 } else if (response.data.status === 'picker' || response.data.picker) {
                     console.log(`✅ Instagram carousel extraction via Cobalt (${cobaltUrl}) successful!`);
@@ -274,7 +275,8 @@ export async function getYoutubeVideo(youtubeUrl) {
 
         if (response.data) {
             if (response.data.url) {
-                console.log(`✅ YouTube extraction via Cobalt v7 API successful!`);
+                const status = response.data.status || 'stream';
+                console.log(`✅ YouTube extraction via Cobalt v7 API successful! [Status: ${status}]`);
                 return { videoUrl: response.data.url, title: 'YouTube Shorts' };
             } else if (response.data.status === 'picker' || response.data.picker) {
                 console.log(`✅ YouTube playlist extraction via Cobalt v7 API successful!`);
@@ -286,10 +288,11 @@ export async function getYoutubeVideo(youtubeUrl) {
     }
 
     // 2. Try v10 layout on the fallback list of Cobalt instances
+    // Exclude the private Cobalt instance for YouTube because proxy/scraping restrictions on Render result in 0-byte downloads.
     const fallbackList = [];
-    if (process.env.COBALT_API_URL) fallbackList.push(process.env.COBALT_API_URL);
+    fallbackList.push('https://subito-c.meowing.de/'); // Prioritize stable public instance recommended by user
     fallbackList.push(...dynamicCobaltApis);
-    fallbackList.push('https://rue-cobalt.xenon.zone/', 'https://subito-c.meowing.de/', 'https://nuko-c.meowing.de/');
+    fallbackList.push('https://rue-cobalt.xenon.zone/', 'https://nuko-c.meowing.de/');
 
     for (const cobaltUrl of fallbackList) {
         try {
@@ -308,7 +311,8 @@ export async function getYoutubeVideo(youtubeUrl) {
 
             if (response.data) {
                 if (response.data.url) {
-                    console.log(`✅ YouTube extraction via Cobalt v10 (${cobaltUrl}) successful!`);
+                    const status = response.data.status || 'stream';
+                    console.log(`✅ YouTube extraction via Cobalt v10 (${cobaltUrl}) successful! [Status: ${status}]`);
                     return { videoUrl: response.data.url, title: 'YouTube Shorts' };
                 } else if (response.data.status === 'picker' || response.data.picker) {
                     console.log(`✅ YouTube playlist extraction via Cobalt v10 (${cobaltUrl}) successful!`);
