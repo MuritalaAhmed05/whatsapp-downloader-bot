@@ -18,6 +18,7 @@ let isReconnecting = false;
 let dynamicCobaltApis = [];
 let dynamicYoutubeApis = [];
 let dynamicInstagramApis = [];
+let dynamicTiktokApis = [];
 const COBALT_API_URL = process.env.COBALT_API_URL || 'https://my-private-cobalt.onrender.com/';
 
 // Helper to aggressively strip tracking query parameters
@@ -30,6 +31,36 @@ function sanitizeUrl(url) {
     } catch {
         return url.split('?')[0].trim();
     }
+}
+
+// Helper to expand short URLs (vt.tiktok.com / vm.tiktok.com) to full canonical video URLs
+async function expandShortUrl(url) {
+    if (!url) return url;
+    if (!url.includes('vt.tiktok.com') && !url.includes('vm.tiktok.com')) return url;
+    try {
+        const response = await axios.get(url, {
+            maxRedirects: 0,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15'
+            },
+            validateStatus: status => status >= 200 && status < 400,
+            timeout: 5000
+        });
+        const loc = response.headers?.location;
+        if (loc) {
+            const expanded = loc.split('?')[0];
+            console.log(`🔗 Expanded short TikTok URL: ${url} -> ${expanded}`);
+            return expanded;
+        }
+    } catch (err) {
+        if (err.response?.headers?.location) {
+            const expanded = err.response.headers.location.split('?')[0];
+            console.log(`🔗 Expanded short TikTok URL (via catch): ${url} -> ${expanded}`);
+            return expanded;
+        }
+        console.warn(`Failed to expand short URL ${url}: ${err.message}`);
+    }
+    return url;
 }
 
 // Function to generate random residential-like headers and fake client IP to bypass blocklists
@@ -71,6 +102,11 @@ async function fetchActiveCobaltApis() {
         if (instagramApis.length > 0) {
             dynamicInstagramApis = instagramApis.map(api => api.endsWith('/') ? api : api + '/');
             console.log(`📡 Discovered ${dynamicInstagramApis.length} dynamic Instagram-specific Cobalt APIs.`);
+        }
+        const tiktokApis = res.data?.data?.tiktok || [];
+        if (tiktokApis.length > 0) {
+            dynamicTiktokApis = tiktokApis.map(api => api.endsWith('/') ? api : api + '/');
+            console.log(`📡 Discovered ${dynamicTiktokApis.length} dynamic TikTok-specific Cobalt APIs.`);
         }
     } catch (err) {
         console.warn('⚠️ Failed to fetch dynamic Cobalt instances. Will use default fallbacks.', err.message);
@@ -115,46 +151,144 @@ function findVideoUrlInJSON(data) {
 export async function getTikTokVideo(tiktokUrl) {
     console.log(`🚀 Requesting TikTok Downloader for: ${tiktokUrl}`);
     
-    // 1. Try TikWM first (stable placeholder)
-    try {
-        const response = await axios.post('https://www.tikwm.com/api/', new URLSearchParams({
-            url: tiktokUrl,
-            hd: '1'
-        }), {
-            headers: {
-                ...getSpoofedHeaders(),
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-            },
-            timeout: 15000
-        });
-
-        const result = response.data;
-        if (result.code === 0 && result.data && result.data.play) {
-            return {
-                videoUrl: result.data.play,
-                title: result.data.title || 'TikTok Video'
-            };
-        }
-    } catch (err) {
-        console.warn(`TikWM failed: ${err.message}. Trying fallback API...`);
+    // 0. Expand short URLs (vt.tiktok.com / vm.tiktok.com)
+    const expandedUrl = await expandShortUrl(tiktokUrl);
+    const urlsToTry = [expandedUrl];
+    if (tiktokUrl !== expandedUrl) {
+        urlsToTry.push(tiktokUrl);
     }
 
-    // 2. Try tiklydown keyless API as a fallback
-    try {
-        const response = await axios.get(`https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(tiktokUrl)}`, {
-            headers: getSpoofedHeaders(),
-            timeout: 10000
-        });
-        const videoUrl = response.data?.video?.noWatermark || response.data?.video?.watermark;
-        if (videoUrl) {
-            console.log(`✅ TikTok extraction via Tiklydown successful!`);
-            return {
-                videoUrl,
-                title: response.data?.title || 'TikTok Video'
-            };
+    // 1. Try TikWM POST API first (with clean headers to prevent 403 block)
+    for (const targetUrl of urlsToTry) {
+        try {
+            const response = await axios.post('https://www.tikwm.com/api/', new URLSearchParams({
+                url: targetUrl,
+                hd: '1'
+            }), {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'Accept': 'application/json, text/javascript, */*; q=0.01'
+                },
+                timeout: 4000
+            });
+
+            const result = response.data;
+            if (result && result.code === 0 && result.data && result.data.play) {
+                console.log(`✅ TikTok extraction via TikWM (POST) successful!`);
+                return {
+                    videoUrl: result.data.play,
+                    title: result.data.title || 'TikTok Video'
+                };
+            }
+        } catch (err) {
+            console.warn(`TikWM POST failed for ${targetUrl}: ${err.message}. Trying next fallback...`);
         }
-    } catch (err) {
-        console.error(`TikTok Tiklydown fallback failed:`, err.message);
+    }
+
+    // 2. Try TikWM GET API endpoint
+    for (const targetUrl of urlsToTry) {
+        try {
+            const response = await axios.get(`https://www.tikwm.com/api/?url=${encodeURIComponent(targetUrl)}&hd=1`, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'application/json'
+                },
+                timeout: 4000
+            });
+
+            const result = response.data;
+            if (result && result.code === 0 && result.data && result.data.play) {
+                console.log(`✅ TikTok extraction via TikWM (GET) successful!`);
+                return {
+                    videoUrl: result.data.play,
+                    title: result.data.title || 'TikTok Video'
+                };
+            }
+        } catch (err) {
+            console.warn(`TikWM GET failed for ${targetUrl}: ${err.message}.`);
+        }
+    }
+
+    // 3. Fallback to list of Cobalt instances (prioritizing high-availability verified mirrors)
+    const fallbackList = [];
+    if (COBALT_API_URL) fallbackList.push(COBALT_API_URL);
+    
+    // Top verified public Cobalt mirrors
+    fallbackList.push(
+        'https://dog.kittycat.boo/',
+        'https://cobaltapi.cjs.nz/',
+        'https://subito-c.meowing.de/',
+        'https://nuko-c.meowing.de/',
+        'https://api.qwkuns.me/',
+        'https://cobalt.omega.wolfy.love/',
+        'https://api-cobalt.eversiege.network/'
+    );
+
+    if (dynamicTiktokApis.length > 0) fallbackList.push(...dynamicTiktokApis.slice(0, 5));
+    if (dynamicCobaltApis.length > 0) fallbackList.push(...dynamicCobaltApis.slice(0, 5));
+
+    const uniqueCobaltList = [...new Set(fallbackList)];
+
+    for (const targetUrl of urlsToTry) {
+        for (const cobaltUrl of uniqueCobaltList) {
+            try {
+                const isPrivateInstance = cobaltUrl === COBALT_API_URL;
+                console.log(`Trying Cobalt fallback for TikTok: ${cobaltUrl}`);
+                const response = await axios.post(cobaltUrl, {
+                    url: targetUrl
+                }, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: isPrivateInstance ? 15000 : 5000
+                });
+
+                if (response.data) {
+                    if (response.data.url) {
+                        const status = response.data.status || 'stream';
+                        console.log(`✅ TikTok extraction via Cobalt (${cobaltUrl}) successful! [Status: ${status}]`);
+                        return { videoUrl: response.data.url, title: 'TikTok Video' };
+                    } else if (response.data.status === 'picker' || response.data.picker) {
+                        console.log(`✅ TikTok slideshow extraction via Cobalt (${cobaltUrl}) successful!`);
+                        return { picker: response.data.picker, title: 'TikTok Slideshow' };
+                    }
+                }
+            } catch (err) {
+                console.warn(`Cobalt TikTok instance ${cobaltUrl} failed.`);
+            }
+        }
+    }
+
+    // 4. Try SSSTik fallback scraper
+    for (const targetUrl of urlsToTry) {
+        try {
+            console.log(`Trying SSSTik fallback for TikTok: ${targetUrl}`);
+            const res = await axios.post('https://ssstik.io/abc?url=dl', new URLSearchParams({
+                id: targetUrl,
+                locale: 'en',
+                tt: '0'
+            }), {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'Origin': 'https://ssstik.io',
+                    'Referer': 'https://ssstik.io/en'
+                },
+                timeout: 6000
+            });
+
+            const hrefMatch = res.data.match(/href="(https:\/\/[^"]+)" class="[^"]*download_link[^"]*"/);
+            const videoUrl = hrefMatch ? hrefMatch[1] : null;
+            if (videoUrl) {
+                console.log(`✅ TikTok extraction via SSSTik successful!`);
+                return { videoUrl, title: 'TikTok Video' };
+            }
+        } catch (err) {
+            console.warn(`SSSTik fallback failed: ${err.message}`);
+        }
     }
 
     throw new Error('Unable to extract TikTok video. Link may be private or downloader is rate-limited.');
