@@ -1,4 +1,4 @@
-import { getTikTokVideo, getInstagramVideo, getYoutubeVideo } from './bot.mjs';
+import { getTikTokVideo, getInstagramVideo, getYoutubeVideo, getXVideo, getFacebookVideo, getSnapchatVideo } from './bot.mjs';
 
 // Helper to sanitize links so tracking tags don't break the scrapers
 function sanitizeUrl(url) {
@@ -24,7 +24,7 @@ async function testTikTok() {
 }
 
 async function testTikTokShort() {
-    const rawUrl = "https://vt.tiktok.com/ZSV2eHtYw/";
+    const rawUrl = "https://vt.tiktok.com/ZSVDwo2Qd/";
     const url = sanitizeUrl(rawUrl);
 
     console.log(`\n---------------------------------------`);
@@ -46,7 +46,7 @@ async function testInstagram() {
     const url = sanitizeUrl(rawUrl);
 
     console.log(`\n---------------------------------------`);
-    console.log(`[TEST] Testing Instagram Extractor for: ${url}`);
+    console.log(`[TEST 2] Testing Instagram Extractor for: ${url}`);
     try {
         const result = await getInstagramVideo(url);
         if (!result || !result.videoUrl) throw new Error("No video URL returned");
@@ -58,59 +58,65 @@ async function testInstagram() {
     }
 }
 
-async function testYoutube() {
-    const rawUrl = 'https://youtube.com/shorts/70hhbU0U_f4?si=ux3RtLPqTtcA2Rvd';
+async function testX() {
+    const rawUrl = 'https://x.com/SpaceX/status/1815197737521570188';
     const url = sanitizeUrl(rawUrl);
 
     console.log(`\n---------------------------------------`);
-    console.log(`[TEST] Testing YouTube Extractor for: ${url}`);
+    console.log(`[TEST 3] Testing X (Twitter) Extractor for: ${url}`);
     try {
-        const result = await getYoutubeVideo(url);
-        if (!result || !result.videoUrl) throw new Error("No video URL returned");
-        console.log('✅ YouTube Extraction Success!');
+        const result = await getXVideo(url);
+        if (!result || (!result.videoUrl && !result.picker)) throw new Error("No video URL returned");
+        console.log('✅ X Extraction Success!');
         console.log('Title:', result.title);
-        console.log('Video URL:', result.videoUrl.substring(0, 80) + '...');
+        if (result.videoUrl) console.log('Video URL:', result.videoUrl.substring(0, 80) + '...');
     } catch (err) {
-        console.error('❌ YouTube Extraction Failed:', err.message);
+        console.error('❌ X Extraction Result:', err.message);
     }
 }
 
-async function testInstagramCarousel() {
-    // Set custom API URL to ensure we hit the private working Cobalt instance
-    process.env.COBALT_API_URL = 'https://my-private-cobalt.onrender.com/';
-    const rawUrl = 'https://www.instagram.com/p/DajHquUD5Gb';
+async function testFacebook() {
+    const rawUrl = 'https://www.facebook.com/watch/?v=10159234857416729';
     const url = sanitizeUrl(rawUrl);
 
     console.log(`\n---------------------------------------`);
-    console.log(`[TEST] Testing Instagram Carousel Extractor for: ${url}`);
+    console.log(`[TEST 4] Testing Facebook Extractor for: ${url}`);
     try {
-        const result = await getInstagramVideo(url);
-        if (result && result.picker) {
-            console.log('✅ Instagram Carousel Extraction Success!');
-            console.log('Title:', result.title);
-            console.log('Total Items Found:', result.picker.length);
-            result.picker.forEach((item, idx) => {
-                console.log(`  [${idx + 1}] Type: ${item.type}, URL: ${item.url ? item.url.substring(0, 50) + '...' : 'none'}`);
-            });
-        } else if (result && result.videoUrl) {
-            console.log('✅ Instagram Reel Extraction (Single video returned instead of picker) Success!');
-            console.log('Title:', result.title);
-            console.log('Video URL:', result.videoUrl.substring(0, 80) + '...');
-        } else {
-            throw new Error("No video URL or picker list returned");
-        }
+        const result = await getFacebookVideo(url);
+        if (!result || !result.videoUrl) throw new Error("No video URL returned");
+        console.log('✅ Facebook Extraction Success!');
+        console.log('Title:', result.title);
+        console.log('Video URL:', result.videoUrl.substring(0, 80) + '...');
     } catch (err) {
-        console.error('❌ Instagram Carousel Extraction Failed:', err.message);
+        console.error('❌ Facebook Extraction Result:', err.message);
+    }
+}
+
+async function testSnapchat() {
+    const rawUrl = 'https://story.snapchat.com/p/9d2c676d-14a5-48b4-933e-e6a9829f049a';
+    const url = sanitizeUrl(rawUrl);
+
+    console.log(`\n---------------------------------------`);
+    console.log(`[TEST 5] Testing Snapchat Extractor for: ${url}`);
+    try {
+        const result = await getSnapchatVideo(url);
+        if (!result || !result.videoUrl) throw new Error("No video URL returned");
+        console.log('✅ Snapchat Extraction Success!');
+        console.log('Title:', result.title);
+        console.log('Video URL:', result.videoUrl.substring(0, 80) + '...');
+    } catch (err) {
+        console.error('❌ Snapchat Extraction Result:', err.message);
     }
 }
 
 async function run() {
-    console.log('🚀 Running Universal Downloader Tests...\n');
+    console.log('🚀 Running Universal Downloader Tests (TikTok, Instagram, YouTube, X, Facebook, Snapchat)...\n');
     await testTikTok();
     await testTikTokShort();
     await testInstagram();
-    await testYoutube();
-    await testInstagramCarousel();
+    await testX();
+    await testFacebook();
+    await testSnapchat();
     console.log(`\n=======================================\n`);
 }
 

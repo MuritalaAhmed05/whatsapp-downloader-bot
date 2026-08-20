@@ -13,12 +13,18 @@ const BOT_PHONE_NUMBER = '09074940228';
 const TIKTOK_REGEX = /https?:\/\/(?:vm|vt|www)\.tiktok\.com\/[a-zA-Z0-9_@\/-]+/i;
 const INSTAGRAM_REGEX = /https?:\/\/(?:www\.)?instagram\.com\/(?:reel|p)\/[a-zA-Z0-9_-]+/i;
 const YOUTUBE_REGEX = /https?:\/\/(?:www\.)?(?:youtube\.com\/shorts\/[a-zA-Z0-9_-]+|youtu\.be\/[a-zA-Z0-9_-]+)/i;
+const X_REGEX = /https?:\/\/(?:www\.)?(?:twitter\.com|x\.com)\/[a-zA-Z0-9_]+\/status\/\d+/i;
+const FACEBOOK_REGEX = /https?:\/\/(?:www\.|m\.|web\.)?(?:facebook\.com|fb\.watch|fb\.com)\/(?:watch\/?\?v=\d+|reel\/\d+|[a-zA-Z0-9._-]+\/videos\/\d+|\d+|share\/(?:v|r)\/[a-zA-Z0-9]+)/i;
+const SNAPCHAT_REGEX = /https?:\/\/(?:www\.)?(?:snapchat\.com|story\.snapchat\.com|t\.snapchat\.com)\/(?:spotlight|story|p|s|add)\/[a-zA-Z0-9_.-]+/i;
 
 let isReconnecting = false;
 let dynamicCobaltApis = [];
 let dynamicYoutubeApis = [];
 let dynamicInstagramApis = [];
 let dynamicTiktokApis = [];
+let dynamicXApis = [];
+let dynamicFacebookApis = [];
+let dynamicSnapchatApis = [];
 const COBALT_API_URL = process.env.COBALT_API_URL || 'https://my-private-cobalt.onrender.com/';
 
 // Helper to aggressively strip tracking query parameters
@@ -64,19 +70,19 @@ async function expandShortUrl(url) {
 }
 
 // Function to generate random residential-like headers and fake client IP to bypass blocklists
-function getSpoofedHeaders() {
+function getSpoofedHeaders(referer = 'https://www.google.com/') {
     const randomIp = Array.from({ length: 4 }, () => Math.floor(Math.random() * 255)).join('.');
     return {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
-        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Safari";v="604"',
-        'sec-ch-ua-mobile': '?1',
-        'sec-ch-ua-platform': '"iOS"',
+        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
         'X-Forwarded-For': randomIp,
         'X-Real-IP': randomIp,
         'Client-IP': randomIp,
-        'Referer': 'https://www.google.com/'
+        'Referer': referer
     };
 }
 
@@ -158,7 +164,7 @@ export async function getTikTokVideo(tiktokUrl) {
         urlsToTry.push(tiktokUrl);
     }
 
-    // 1. Try TikWM POST API first (with clean headers to prevent 403 block)
+    // 1. Try TikWM POST API first (with modern spoofed headers to bypass 403 blocks)
     for (const targetUrl of urlsToTry) {
         try {
             const response = await axios.post('https://www.tikwm.com/api/', new URLSearchParams({
@@ -166,20 +172,29 @@ export async function getTikTokVideo(tiktokUrl) {
                 hd: '1'
             }), {
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    ...getSpoofedHeaders('https://www.tikwm.com/'),
                     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'Accept': 'application/json, text/javascript, */*; q=0.01'
+                    'Origin': 'https://www.tikwm.com'
                 },
-                timeout: 4000
+                timeout: 6000
             });
 
             const result = response.data;
-            if (result && result.code === 0 && result.data && result.data.play) {
-                console.log(`✅ TikTok extraction via TikWM (POST) successful!`);
-                return {
-                    videoUrl: result.data.play,
-                    title: result.data.title || 'TikTok Video'
-                };
+            if (result && result.code === 0 && result.data) {
+                if (result.data.images && Array.isArray(result.data.images) && result.data.images.length > 0) {
+                    console.log(`✅ TikTok Slideshow extraction via TikWM (POST) successful!`);
+                    return {
+                        picker: result.data.images.map(img => ({ url: img, type: 'photo' })),
+                        title: result.data.title || 'TikTok Slideshow'
+                    };
+                }
+                if (result.data.play || result.data.hdplay) {
+                    console.log(`✅ TikTok extraction via TikWM (POST) successful!`);
+                    return {
+                        videoUrl: result.data.play || result.data.hdplay,
+                        title: result.data.title || 'TikTok Video'
+                    };
+                }
             }
         } catch (err) {
             console.warn(`TikWM POST failed for ${targetUrl}: ${err.message}. Trying next fallback...`);
@@ -190,31 +205,93 @@ export async function getTikTokVideo(tiktokUrl) {
     for (const targetUrl of urlsToTry) {
         try {
             const response = await axios.get(`https://www.tikwm.com/api/?url=${encodeURIComponent(targetUrl)}&hd=1`, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'application/json'
-                },
-                timeout: 4000
+                headers: getSpoofedHeaders('https://www.tikwm.com/'),
+                timeout: 6000
             });
 
             const result = response.data;
-            if (result && result.code === 0 && result.data && result.data.play) {
-                console.log(`✅ TikTok extraction via TikWM (GET) successful!`);
-                return {
-                    videoUrl: result.data.play,
-                    title: result.data.title || 'TikTok Video'
-                };
+            if (result && result.code === 0 && result.data) {
+                if (result.data.images && Array.isArray(result.data.images) && result.data.images.length > 0) {
+                    console.log(`✅ TikTok Slideshow extraction via TikWM (GET) successful!`);
+                    return {
+                        picker: result.data.images.map(img => ({ url: img, type: 'photo' })),
+                        title: result.data.title || 'TikTok Slideshow'
+                    };
+                }
+                if (result.data.play || result.data.hdplay) {
+                    console.log(`✅ TikTok extraction via TikWM (GET) successful!`);
+                    return {
+                        videoUrl: result.data.play || result.data.hdplay,
+                        title: result.data.title || 'TikTok Video'
+                    };
+                }
             }
         } catch (err) {
             console.warn(`TikWM GET failed for ${targetUrl}: ${err.message}.`);
         }
     }
 
-    // 3. Fallback to list of Cobalt instances (prioritizing high-availability verified mirrors)
+    // 3. Try TikMate Fallback API
+    for (const targetUrl of urlsToTry) {
+        try {
+            console.log(`Trying TikMate fallback for TikTok: ${targetUrl}`);
+            const res = await axios.post('https://api.tikmate.app/api/lookup', new URLSearchParams({
+                url: targetUrl
+            }), {
+                headers: {
+                    ...getSpoofedHeaders('https://tikmate.app/'),
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'Origin': 'https://tikmate.app'
+                },
+                timeout: 6000
+            });
+
+            if (res.data && res.data.success && res.data.token && res.data.id) {
+                const videoUrl = `https://tikmate.app/download/${res.data.token}/${res.data.id}.mp4`;
+                console.log(`✅ TikTok extraction via TikMate successful!`);
+                return {
+                    videoUrl,
+                    title: res.data.desc || 'TikTok Video'
+                };
+            }
+        } catch (err) {
+            console.warn(`TikMate fallback failed: ${err.message}`);
+        }
+    }
+
+    // 4. Try SSSTik fallback scraper (with robust flexible link parsing)
+    for (const targetUrl of urlsToTry) {
+        try {
+            console.log(`Trying SSSTik fallback for TikTok: ${targetUrl}`);
+            const res = await axios.post('https://ssstik.io/abc?url=dl', new URLSearchParams({
+                id: targetUrl,
+                locale: 'en',
+                tt: '0'
+            }), {
+                headers: {
+                    ...getSpoofedHeaders('https://ssstik.io/en'),
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'Origin': 'https://ssstik.io'
+                },
+                timeout: 7000
+            });
+
+            const html = res.data;
+            const hrefMatches = [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]);
+            const videoUrl = hrefMatches.find(l => l.includes('tikcdn.io') && !l.includes('/m/'));
+            if (videoUrl) {
+                console.log(`✅ TikTok extraction via SSSTik successful!`);
+                return { videoUrl, title: 'TikTok Video' };
+            }
+        } catch (err) {
+            console.warn(`SSSTik fallback failed: ${err.message}`);
+        }
+    }
+
+    // 5. Fallback to list of Cobalt instances (prioritizing high-availability verified mirrors)
     const fallbackList = [];
     if (COBALT_API_URL) fallbackList.push(COBALT_API_URL);
     
-    // Top verified public Cobalt mirrors
     fallbackList.push(
         'https://dog.kittycat.boo/',
         'https://cobaltapi.cjs.nz/',
@@ -239,7 +316,7 @@ export async function getTikTokVideo(tiktokUrl) {
                     url: targetUrl
                 }, {
                     headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        ...getSpoofedHeaders(cobaltUrl),
                         'Accept': 'application/json',
                         'Content-Type': 'application/json'
                     },
@@ -262,32 +339,30 @@ export async function getTikTokVideo(tiktokUrl) {
         }
     }
 
-    // 4. Try SSSTik fallback scraper
+    // 6. Direct TikTok Web Rehydration Scrape Fallback
     for (const targetUrl of urlsToTry) {
         try {
-            console.log(`Trying SSSTik fallback for TikTok: ${targetUrl}`);
-            const res = await axios.post('https://ssstik.io/abc?url=dl', new URLSearchParams({
-                id: targetUrl,
-                locale: 'en',
-                tt: '0'
-            }), {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'Origin': 'https://ssstik.io',
-                    'Referer': 'https://ssstik.io/en'
-                },
-                timeout: 6000
+            console.log(`Trying Web HTML Scrape fallback for TikTok: ${targetUrl}`);
+            const res = await axios.get(targetUrl, {
+                headers: getSpoofedHeaders('https://www.tiktok.com/'),
+                timeout: 7000
             });
 
-            const hrefMatch = res.data.match(/href="(https:\/\/[^"]+)" class="[^"]*download_link[^"]*"/);
-            const videoUrl = hrefMatch ? hrefMatch[1] : null;
-            if (videoUrl) {
-                console.log(`✅ TikTok extraction via SSSTik successful!`);
-                return { videoUrl, title: 'TikTok Video' };
+            const html = res.data;
+            const rehydrationMatch = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(\{.+?\})<\/script>/);
+            if (rehydrationMatch) {
+                const parsed = JSON.parse(rehydrationMatch[1]);
+                const itemStruct = parsed?.['__DEFAULT_SCOPE__']?.['webapp.video-detail']?.itemInfo?.itemStruct;
+                if (itemStruct?.video?.playAddr) {
+                    console.log(`✅ TikTok extraction via Web Rehydration successful!`);
+                    return {
+                        videoUrl: itemStruct.video.playAddr,
+                        title: itemStruct.desc || 'TikTok Video'
+                    };
+                }
             }
         } catch (err) {
-            console.warn(`SSSTik fallback failed: ${err.message}`);
+            console.warn(`TikTok Web Scrape fallback failed: ${err.message}`);
         }
     }
 
@@ -301,8 +376,9 @@ export async function getTikTokComments(tiktokUrl) {
             url: tiktokUrl
         }), {
             headers: {
-                ...getSpoofedHeaders(),
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                ...getSpoofedHeaders('https://www.tikwm.com/'),
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'Origin': 'https://www.tikwm.com'
             },
             timeout: 8000
         });
@@ -499,6 +575,255 @@ export async function getYoutubeVideo(youtubeUrl) {
     throw new Error('Unable to extract YouTube video. All public Cobalt proxies are blocked. Consider hosting your own instance and setting COBALT_API_URL.');
 }
 
+// Extraction Helper: X / Twitter
+export async function getXVideo(xUrl) {
+    console.log(`🚀 Requesting X/Twitter Downloader for: ${xUrl}`);
+    const statusId = xUrl.match(/status\/(\d+)/)?.[1];
+
+    // 1. Try VxTwitter API (api.vxtwitter.com/status/:id)
+    if (statusId) {
+        try {
+            const res = await axios.get(`https://api.vxtwitter.com/status/${statusId}`, {
+                headers: getSpoofedHeaders('https://x.com/'),
+                timeout: 7000
+            });
+            if (res.data && res.data.media_extended && Array.isArray(res.data.media_extended) && res.data.media_extended.length > 0) {
+                const video = res.data.media_extended.find(m => m.type === 'video' || m.type === 'gif');
+                if (video && video.url) {
+                    console.log(`✅ X/Twitter extraction via VxTwitter successful!`);
+                    return { videoUrl: video.url, title: res.data.text || 'X Video' };
+                }
+            }
+        } catch (err) {
+            console.warn(`VxTwitter API failed: ${err.message}. Trying next fallback...`);
+        }
+    }
+
+    // 2. Try Twitsave API
+    try {
+        console.log(`Trying Twitsave fallback for X...`);
+        const res = await axios.get(`https://twitsave.com/info?url=${encodeURIComponent(xUrl)}`, {
+            headers: getSpoofedHeaders('https://twitsave.com/'),
+            timeout: 7000
+        });
+        const match = res.data.match(/href="(https:\/\/twitsave\.com\/download\?file=[^"]+)"/);
+        if (match && match[1]) {
+            console.log(`✅ X/Twitter extraction via Twitsave successful!`);
+            return { videoUrl: match[1], title: 'X Video' };
+        }
+    } catch (err) {
+        console.warn(`Twitsave fallback failed: ${err.message}`);
+    }
+
+    // 3. Fallback list of Cobalt instances
+    const fallbackList = [];
+    if (COBALT_API_URL) fallbackList.push(COBALT_API_URL);
+    fallbackList.push(
+        'https://cobaltapi.cjs.nz/',
+        'https://dog.kittycat.boo/',
+        'https://subito-c.meowing.de/',
+        'https://nuko-c.meowing.de/',
+        'https://api.qwkuns.me/',
+        'https://cobalt.omega.wolfy.love/'
+    );
+    if (dynamicCobaltApis.length > 0) fallbackList.push(...dynamicCobaltApis.slice(0, 5));
+
+    const uniqueCobaltList = [...new Set(fallbackList)];
+
+    for (const cobaltUrl of uniqueCobaltList) {
+        try {
+            console.log(`Trying Cobalt fallback for X: ${cobaltUrl}`);
+            const response = await axios.post(cobaltUrl, { url: xUrl }, {
+                headers: {
+                    ...getSpoofedHeaders(cobaltUrl),
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                timeout: 8000
+            });
+            if (response.data) {
+                if (response.data.url) {
+                    console.log(`✅ X extraction via Cobalt (${cobaltUrl}) successful!`);
+                    return { videoUrl: response.data.url, title: 'X Video' };
+                } else if (response.data.picker) {
+                    console.log(`✅ X media picker extraction via Cobalt (${cobaltUrl}) successful!`);
+                    return { picker: response.data.picker, title: 'X Media' };
+                }
+            }
+        } catch (err) {
+            console.warn(`Cobalt X instance ${cobaltUrl} failed.`);
+        }
+    }
+
+    throw new Error('Unable to extract X/Twitter video. Link may be private or media was not found.');
+}
+
+// Extraction Helper: Facebook
+export async function getFacebookVideo(fbUrl) {
+    console.log(`🚀 Requesting Facebook Downloader for: ${fbUrl}`);
+
+    // 1. Try GetMyFB process API
+    try {
+        console.log(`Trying GetMyFB API for Facebook...`);
+        const res = await axios.post('https://getmyfb.com/process', new URLSearchParams({
+            id: fbUrl,
+            locale: 'en'
+        }), {
+            headers: {
+                ...getSpoofedHeaders('https://getmyfb.com/'),
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            timeout: 8000
+        });
+        const html = res.data;
+        const hdMatch = html.match(/href="(https:\/\/[^"]+)"[^>]*>\s*Download HD/i) || 
+                        html.match(/href="(https:\/\/[^"]+)"[^>]*>\s*Download SD/i) || 
+                        html.match(/href="(https:\/\/[^"]+fbcdn[^"]+)"/i);
+        if (hdMatch && hdMatch[1]) {
+            const videoUrl = hdMatch[1].replace(/&amp;/g, '&');
+            console.log(`✅ Facebook extraction via GetMyFB successful!`);
+            return { videoUrl, title: 'Facebook Video' };
+        }
+    } catch (err) {
+        console.warn(`GetMyFB API failed for Facebook: ${err.message}`);
+    }
+
+    // 2. Direct Facebook Web HTML Scrape (hd_src / sd_src / browser_native_url)
+    try {
+        console.log(`Trying Direct Facebook HTML scrape...`);
+        const res = await axios.get(fbUrl, {
+            headers: getSpoofedHeaders('https://www.facebook.com/'),
+            timeout: 8000
+        });
+        const html = res.data;
+        const srcMatch = html.match(/"browser_native_hd_url":"([^"]+)"/) || 
+                         html.match(/"browser_native_sd_url":"([^"]+)"/) || 
+                         html.match(/hd_src:"([^"]+)"/) || 
+                         html.match(/sd_src:"([^"]+)"/);
+        if (srcMatch && srcMatch[1]) {
+            const videoUrl = srcMatch[1].replace(/\\/g, '').replace(/\\u00253D/g, '=');
+            console.log(`✅ Facebook extraction via HTML scrape successful!`);
+            return { videoUrl, title: 'Facebook Video' };
+        }
+    } catch (err) {
+        console.warn(`Direct Facebook HTML scrape failed: ${err.message}`);
+    }
+
+    // 3. Fallback list of Cobalt instances
+    const fallbackList = [];
+    if (COBALT_API_URL) fallbackList.push(COBALT_API_URL);
+    fallbackList.push(
+        'https://cobaltapi.cjs.nz/',
+        'https://dog.kittycat.boo/',
+        'https://subito-c.meowing.de/',
+        'https://nuko-c.meowing.de/',
+        'https://api.qwkuns.me/'
+    );
+    if (dynamicCobaltApis.length > 0) fallbackList.push(...dynamicCobaltApis.slice(0, 5));
+
+    const uniqueCobaltList = [...new Set(fallbackList)];
+
+    for (const cobaltUrl of uniqueCobaltList) {
+        try {
+            console.log(`Trying Cobalt fallback for Facebook: ${cobaltUrl}`);
+            const response = await axios.post(cobaltUrl, { url: fbUrl }, {
+                headers: {
+                    ...getSpoofedHeaders(cobaltUrl),
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                timeout: 8000
+            });
+            if (response.data && response.data.url) {
+                console.log(`✅ Facebook extraction via Cobalt (${cobaltUrl}) successful!`);
+                return { videoUrl: response.data.url, title: 'Facebook Video' };
+            }
+        } catch (err) {
+            console.warn(`Cobalt Facebook instance ${cobaltUrl} failed.`);
+        }
+    }
+
+    throw new Error('Unable to extract Facebook video. Link may be private or downloader proxy is offline.');
+}
+
+// Extraction Helper: Snapchat
+export async function getSnapchatVideo(snapUrl) {
+    console.log(`🚀 Requesting Snapchat Downloader for: ${snapUrl}`);
+
+    // 1. Direct Snapchat Web HTML Scrape (__NEXT_DATA__ or CDN match)
+    try {
+        console.log(`Trying Direct Snapchat Web HTML scrape...`);
+        const res = await axios.get(snapUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9'
+            },
+            timeout: 8000
+        });
+        const html = res.data;
+
+        // Match JSON data in __NEXT_DATA__
+        const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(\{.+?\})<\/script>/);
+        if (nextDataMatch) {
+            const nextData = JSON.parse(nextDataMatch[1]);
+            const str = JSON.stringify(nextData);
+            const mediaUrlMatch = str.match(/https:\\\/\\\/cf-st\.sc-cdn\.net\\\/[^\s"\\]+/);
+            if (mediaUrlMatch) {
+                const videoUrl = mediaUrlMatch[0].replace(/\\\//g, '/');
+                console.log(`✅ Snapchat extraction via __NEXT_DATA__ successful!`);
+                return { videoUrl, title: 'Snapchat Video' };
+            }
+        }
+
+        // Direct CDN mp4 match in HTML string
+        const cdnMatch = html.match(/https:\/\/cf-st\.sc-cdn\.net\/[^\s"']+/);
+        if (cdnMatch) {
+            console.log(`✅ Snapchat extraction via CDN match successful!`);
+            return { videoUrl: cdnMatch[0], title: 'Snapchat Video' };
+        }
+    } catch (err) {
+        console.warn(`Direct Snapchat Web scrape failed: ${err.message}`);
+    }
+
+    // 2. Fallback list of Cobalt instances
+    const fallbackList = [];
+    if (COBALT_API_URL) fallbackList.push(COBALT_API_URL);
+    fallbackList.push(
+        'https://cobaltapi.cjs.nz/',
+        'https://dog.kittycat.boo/',
+        'https://subito-c.meowing.de/',
+        'https://nuko-c.meowing.de/',
+        'https://api.qwkuns.me/'
+    );
+    if (dynamicCobaltApis.length > 0) fallbackList.push(...dynamicCobaltApis.slice(0, 5));
+
+    const uniqueCobaltList = [...new Set(fallbackList)];
+
+    for (const cobaltUrl of uniqueCobaltList) {
+        try {
+            console.log(`Trying Cobalt fallback for Snapchat: ${cobaltUrl}`);
+            const response = await axios.post(cobaltUrl, { url: snapUrl }, {
+                headers: {
+                    ...getSpoofedHeaders(cobaltUrl),
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                timeout: 8000
+            });
+            if (response.data && response.data.url) {
+                console.log(`✅ Snapchat extraction via Cobalt (${cobaltUrl}) successful!`);
+                return { videoUrl: response.data.url, title: 'Snapchat Video' };
+            }
+        } catch (err) {
+            console.warn(`Cobalt Snapchat instance ${cobaltUrl} failed.`);
+        }
+    }
+
+    throw new Error('Unable to extract Snapchat video. Link may be private or story has expired.');
+}
+
 async function startBot() {
     console.log('🤖 Initializing Social Media Downloader Bot...');
 
@@ -602,6 +927,15 @@ async function startBot() {
         } else if (YOUTUBE_REGEX.test(text)) {
             detectedUrl = sanitizeUrl(text.match(YOUTUBE_REGEX)[0]);
             platform = 'youtube';
+        } else if (X_REGEX.test(text)) {
+            detectedUrl = sanitizeUrl(text.match(X_REGEX)[0]);
+            platform = 'x';
+        } else if (FACEBOOK_REGEX.test(text)) {
+            detectedUrl = sanitizeUrl(text.match(FACEBOOK_REGEX)[0]);
+            platform = 'facebook';
+        } else if (SNAPCHAT_REGEX.test(text)) {
+            detectedUrl = sanitizeUrl(text.match(SNAPCHAT_REGEX)[0]);
+            platform = 'snapchat';
         }
 
         if (!detectedUrl || !platform) return;
@@ -627,6 +961,12 @@ async function startBot() {
                 extractionResult = await getInstagramVideo(detectedUrl);
             } else if (platform === 'youtube') {
                 extractionResult = await getYoutubeVideo(detectedUrl);
+            } else if (platform === 'x') {
+                extractionResult = await getXVideo(detectedUrl);
+            } else if (platform === 'facebook') {
+                extractionResult = await getFacebookVideo(detectedUrl);
+            } else if (platform === 'snapchat') {
+                extractionResult = await getSnapchatVideo(detectedUrl);
             }
 
             if (extractionResult.picker && Array.isArray(extractionResult.picker)) {
@@ -755,7 +1095,11 @@ async function startBot() {
                 'instagram reel', 
                 'tiktok video', 
                 'extracted video', 
-                'video'
+                'video',
+                'x video',
+                'twitter video',
+                'facebook video',
+                'snapchat video'
             ].includes(title.toLowerCase().trim());
 
             if (!isGeneric) {

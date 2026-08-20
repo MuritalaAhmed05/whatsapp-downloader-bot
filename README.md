@@ -1,15 +1,18 @@
-# TikTok WhatsApp Downloader Bot 🤖
+# Universal Social Media WhatsApp Downloader Bot 🤖
 
-A lightweight automated WhatsApp bot written in Node.js (ES Modules) that detects TikTok links sent to its DM, retrieves watermark-free high-definition video assets via the `tikwm.com` API, and replies directly to the sender with the raw `.mp4` video.
+A lightweight automated WhatsApp bot written in Node.js (ES Modules) that detects media links sent to its DM for **TikTok, Instagram, YouTube Shorts, X (Twitter), Facebook, and Snapchat**, extracts watermark-free high-definition video assets and carousels, and replies directly to the sender with the raw `.mp4` / photo assets.
 
-## Features
-- **Watermark-Free Downloads**: Automatically retrieves clean, watermark-free TikTok videos.
-- **Direct Message Replies**: The bot replies directly to the source message using quoted reply context.
-- **DM-Only Isolation**: The bot ignores group chats, keeping its focus on personal direct messages.
-- **Status Updates**: Sends a temporary `⏳ Downloading video, please wait...` text message that is deleted automatically once the video is uploaded.
-- **Size Limits & Warnings**: Checks video size before sending and warns the user if it exceeds WhatsApp's media limit (64MB).
-- **Persistent Sessions**: Sessions are saved locally in the `auth_info` directory, so you only scan the QR code once.
-- **Uptime Monitoring Server**: Runs an integrated Express web server alongside the bot to listen to incoming pings and prevent the hosting container from going to sleep on free tiers (like Render).
+## Supported Platforms & Features
+- **TikTok**: Watermark-free videos & photo slideshow carousels via TikWM, TikMate, SSSTik & direct rehydration scrapers.
+- **Instagram**: Reels, posts & multi-item photo/video carousels via Cobalt & API proxies.
+- **YouTube Shorts**: High-definition shorts & video streams.
+- **X (Twitter)**: Single/multi-video tweets & GIFs via VxTwitter, Twitsave & Cobalt.
+- **Facebook**: Public reels & watch videos via GetMyFB, direct HTML scraping & Cobalt.
+- **Snapchat**: Public Spotlight videos & Stories via Snapchat Web JSON rehydration & Cobalt.
+- **Direct Message Isolation**: Ignores group chats, keeping its focus on personal direct messages.
+- **Status Updates**: Sends temporary downloading progress indicators that edit/clean up automatically.
+- **Size Limits & Safety**: Checks file sizes before sending and enforces WhatsApp limits (64MB).
+- **Persistent Sessions**: Sessions are saved locally in the `auth_info` directory.
 
 ## Tech Stack
 - **Node.js**: ES Modules syntax (`bot.mjs`).
