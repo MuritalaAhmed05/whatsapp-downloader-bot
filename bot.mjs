@@ -848,7 +848,35 @@ async function startBot() {
         logger: pino({ level: 'warn' }), // Keep the console output clean
         browser: ['Media Downloader Bot', 'macOS', '1.0.0']
     });
+// 3. Initialize the socket connection
+    const sock = makeWASocket({
+        version,
+        auth: state,
+        logger: pino({ level: 'warn' }), 
+        // Baileys sometimes requires a specific browser format for pairing codes
+        browser: ['Ubuntu', 'Chrome', '20.0.04'] 
+    });
 
+    // --- ADD THIS BLOCK FOR PAIRING CODE ---
+    // Make sure to replace with your actual phone number including the country code (e.g., "234..." for Nigeria) without the '+'
+    const phoneNumber = "2349074940228"; 
+
+    if (!sock.authState.creds.registered) {
+        setTimeout(async () => {
+            try {
+                const code = await sock.requestPairingCode(phoneNumber);
+                // Formats the code nicely with a dash (e.g., 1234-5678)
+                console.log(`\n🔢 Your Pairing Code is: ${code.match(/.{1,4}/g)?.join('-') || code}`);
+                console.log('Open WhatsApp > Linked Devices > Link with phone number instead');
+            } catch (err) {
+                console.error('\n❌ Failed to request pairing code:', err);
+            }
+        }, 3000); // 3-second delay gives the socket time to initialize
+    }
+    // ---------------------------------------
+
+    // 4. Save credentials on update
+    sock.ev.on('creds.update', saveCreds);
     // 4. Save credentials on update
     sock.ev.on('creds.update', saveCreds);
 
@@ -856,10 +884,10 @@ async function startBot() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
         
-        if (qr) {
-            console.log('\n📸 QR Code generated! Scan this using your WhatsApp app (Linked Devices):');
-            qrcode.generate(qr, { small: true });
-        }
+        // if (qr) {
+        //     console.log('\n📸 QR Code generated! Scan this using your WhatsApp app (Linked Devices):');
+        //     qrcode.generate(qr, { small: true });
+        // }
 
         if (connection === 'close') {
             const statusCode = (lastDisconnect?.error instanceof Boom) 
