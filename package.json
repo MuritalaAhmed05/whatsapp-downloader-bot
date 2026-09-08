@@ -5,7 +5,7 @@
   "main": "bot.mjs",
   "type": "module",
   "scripts": {
-    "start": "node bot.mjs"
+    "start": "node api.js && node bot.mjs"
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
