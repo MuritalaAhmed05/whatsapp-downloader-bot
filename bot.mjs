@@ -841,13 +841,7 @@ async function startBot() {
         version = [2, 3000, 1015901307]; // Fallback version if fetch fails
     }
 
-    // 3. Initialize the socket connection
-    const sock = makeWASocket({
-        version,
-        auth: state,
-        logger: pino({ level: 'warn' }), // Keep the console output clean
-        browser: ['Media Downloader Bot', 'macOS', '1.0.0']
-    });
+  
 // 3. Initialize the socket connection
     const sock = makeWASocket({
         version,
